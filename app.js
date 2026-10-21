@@ -10,6 +10,22 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } },
 };
 
+// Inside the iOS app (ios/RoomEQ) the audio runs natively: AirPlay output and the USB microphone at the same time.
+const NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.roomeq);
+const nat = (cmd, args) => window.webkit.messageHandlers.roomeq.postMessage(Object.assign({ cmd }, args || {}));
+let nativeRate = 48000;
+const recRate = () => NATIVE ? nativeRate : (ctx ? ctx.sampleRate : 48000);
+function f32ToB64(f) {
+  const u = new Uint8Array(f.buffer, f.byteOffset, f.byteLength); let s = '';
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function b64ToF32(b) {
+  const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+  return new Float32Array(u.buffer);
+}
+window.__nativeMeter = (db, peak) => showMeter(db, peak);
+
 let mobile = null, ctx = null, stream = null, node = null, chunks = null, busy = false, level = -20, lvlOk = false;
 let nPos = 4, nVer = 0, lastResult = null, lastAnalysis = null, calLabel = '';
 
@@ -63,6 +79,14 @@ function resetAll() {
 
 // ---------- microphone -------------------------------------------------------------------------------------------
 async function startMic(deviceId) {
+  if (NATIVE) {
+    const r = await nat('startMic');
+    nativeRate = r.rate || 48000;
+    $('micbtn').textContent = 'Microphone on'; $('lvlbtn').disabled = false; $('tonebtn').disabled = false;
+    if (!/umik/i.test(r.input || '')) $('meterTxt').innerHTML = '<span class="warn">Input: ' + (r.input || 'unknown') + ' - the UMIK-1 is not the active input. Plug it in and tap again.</span>';
+    else $('meterTxt').textContent = 'Input: ' + r.input + ' (' + nativeRate + ' Hz)';
+    return;
+  }
   applySession();
   if (stream) stream.getTracks().forEach(t => t.stop());
   if (!ctx) {
@@ -98,6 +122,7 @@ function applySession() {
 $('asess').value = store.get('asess', 'auto');
 $('asess').onchange = async e => { store.set('asess', e.target.value); applySession(); $('toneres').textContent = 'Session set to ' + e.target.value + (navigator.audioSession ? '' : ' (this browser has no audioSession API)') + '. Tap the mic button again, then play the tone.'; };
 $('tonebtn').onclick = async () => {
+  if (NATIVE) { $('toneres').textContent = (await nat('tone')).text; return; }
   await ctx.resume();
   const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 1000; g.gain.value = 0.1; o.connect(g); g.connect(ctx.destination);
   let peak = -120; const t0 = performance.now(); const iv = setInterval(() => { const m = $('meterTxt').textContent.match(/(-?\d+) dBFS/); if (m) peak = Math.max(peak, +m[1]); }, 100);
@@ -114,7 +139,9 @@ let meterAt = 0;
 function meter(buf) {
   const now = performance.now(); if (now - meterAt < 120) return; meterAt = now;
   let s = 0, p = 0; for (let i = 0; i < buf.length; i++) { const v = buf[i]; s += v * v; if (Math.abs(v) > p) p = Math.abs(v); }
-  const db = 20 * Math.log10(Math.sqrt(s / buf.length) + 1e-9);
+  showMeter(20 * Math.log10(Math.sqrt(s / buf.length) + 1e-9), p);
+}
+function showMeter(db, p) {
   $('meter').style.width = Math.max(0, Math.min(100, (db + 100) / 100 * 100)) + '%';
   $('meter').style.background = p > 0.98 ? 'var(--bad)' : 'var(--ok)';
   if (!busy) $('meterTxt').textContent = `Microphone ${db.toFixed(0)} dBFS` + (p > 0.98 ? ' · CLIPPING' : '');
@@ -149,6 +176,15 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function playRecord(short, onProgress) {
   const [flat, nch, seconds] = (() => { const p = mobile.plan_audio(level, short); const j = p.toJs(); p.destroy(); return j; })();
   if (window.__fakeRecord) return window.__fakeRecord(short);
+  if (NATIVE) {
+    const total = LEAD_S + seconds + TAIL_S, t0 = performance.now();
+    const iv = setInterval(() => onProgress(Math.min(1, (performance.now() - t0) / 1000 / total)), 150);
+    try {
+      const r = await nat('playRecord', { nch, seconds, lead: LEAD_S, tail: TAIL_S, data: f32ToB64(flat) });
+      nativeRate = r.rate || nativeRate;
+      return b64ToF32(r.data);
+    } finally { clearInterval(iv); }
+  }
   const ext = $('src').value === 'ext';
   mobile.set_search(ext ? 45 : 9);
   const frames = flat.length / nch;
@@ -177,7 +213,7 @@ $('lvlbtn').onclick = async () => {
   lock(true); $('lvlres').innerHTML = '<div class="msg">Playing… keep the room quiet.</div>';
   try {
     const rec = await playRecord(true, p => { $('meterTxt').textContent = `Measuring… ${(p * 100).toFixed(0)} %`; });
-    const r = callPy('check_level', rec, (ctx ? ctx.sampleRate : 48000));
+    const r = callPy('check_level', rec, recRate());
     let h = '';
     if (r.error) h = `<div class="note bad">${r.error}</div>`;
     (r.channels || []).forEach(c => { h += `<div class="msg"><b>${c.name}</b> <span class="${c.status}">${c.text}</span></div>`; });
@@ -201,7 +237,7 @@ async function runMeasure(verify, barId, msgId) {
   try {
     const rec = await playRecord(false, p => { $(barId).style.width = (p * 100) + '%'; });
     $(msgId).textContent = 'Analysing…'; await sleep(30);
-    const r = callPy('measure', rec, (ctx ? ctx.sampleRate : 48000), verify);
+    const r = callPy('measure', rec, recRate(), verify);
     $(barId).style.width = '0';
     if (!r.ok) { $(msgId).innerHTML = '<span class="bad">' + r.error + '</span>'; lock(false); return null; }
     $(msgId).textContent = '';
@@ -293,7 +329,13 @@ $('verscore').onclick = () => {
   });
 };
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if (NATIVE) {
+  ['src', 'extbox', 'routebox', 'asess', 'devlbl', 'dev'].forEach(i => { const e = $(i); if (e) e.hidden = true; });
+  const l = $('src').previousElementSibling; if (l) l.hidden = true;
+  $('routebox').hidden = false; $('routebox').querySelector('summary').textContent = 'Play a test tone';
+  $('asess').previousElementSibling.hidden = true;
+}
+if ('serviceWorker' in navigator && !NATIVE) navigator.serviceWorker.register('sw.js').catch(() => {});
 loadEngine();
 
 // test hook (tests/test_mobile_ui.py): lets a script replace the audio hardware with recorded files
