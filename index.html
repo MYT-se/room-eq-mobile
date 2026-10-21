@@ -48,7 +48,8 @@ details{margin-top:8px;font-size:14px;color:var(--mut)}
   <label>Speakers</label>
   <select id="layout"><option value="2">Stereo (L + R)</option><option value="1">Mono (one speaker / one output)</option></select>
   <label>Microphone calibration file (.txt, 90° file if the mic points at the ceiling)</label>
-  <input type="file" id="calfile">
+  <button type="button" class="sec" id="calbtn">Choose calibration file…</button>
+  <input type="file" id="calfile" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
   <div class="msg" id="calinfo">No file chosen. Without it the mic's own deviation is not removed.</div>
   <label>Measuring positions (the first is the main listening seat)</label>
   <select id="npos"><option>3</option><option selected>4</option><option>5</option><option>6</option></select>

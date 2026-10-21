@@ -38,6 +38,7 @@ function showCal(r) {
   const deg = r.deg != null ? ` · ${r.deg}°` : '';
   $('calinfo').innerHTML = `<span class="ok">${r.label}</span> · serial ${r.serial || '?'}${deg}`;
 }
+$('calbtn').onclick = () => $('calfile').click();
 $('calfile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   if (!needEngine()) return;
