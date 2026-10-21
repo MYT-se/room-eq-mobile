@@ -63,6 +63,7 @@ function resetAll() {
 
 // ---------- microphone -------------------------------------------------------------------------------------------
 async function startMic(deviceId) {
+  applySession();
   if (stream) stream.getTracks().forEach(t => t.stop());
   if (!ctx) {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
@@ -86,10 +87,23 @@ async function startMic(deviceId) {
   const umik = devs.find(d => /umik/i.test(d.label));
   if (umik && umik.deviceId !== cur) return startMic(umik.deviceId);
   $('micbtn').textContent = 'Microphone on';
-  $('lvlbtn').disabled = false;
+  $('lvlbtn').disabled = false; $('tonebtn').disabled = false;
   const label = (devs.find(d => d.deviceId === cur) || {}).label || '';
   if (!/umik/i.test(label)) $('meterTxt').innerHTML = '<span class="warn">The UMIK-1 is not the selected input (' + (label || 'unknown') + '). Plug it in and choose it above.</span>';
 }
+function applySession() {
+  const t = store.get('asess', 'auto');
+  try { if (navigator.audioSession) navigator.audioSession.type = t; } catch (e) { /* not supported */ }
+}
+$('asess').value = store.get('asess', 'auto');
+$('asess').onchange = async e => { store.set('asess', e.target.value); applySession(); $('toneres').textContent = 'Session set to ' + e.target.value + (navigator.audioSession ? '' : ' (this browser has no audioSession API)') + '. Tap the mic button again, then play the tone.'; };
+$('tonebtn').onclick = async () => {
+  await ctx.resume();
+  const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 1000; g.gain.value = 0.1; o.connect(g); g.connect(ctx.destination);
+  let peak = -120; const t0 = performance.now(); const iv = setInterval(() => { const m = $('meterTxt').textContent.match(/(-?\d+) dBFS/); if (m) peak = Math.max(peak, +m[1]); }, 100);
+  o.start(); await sleep(2000); o.stop(); clearInterval(iv);
+  $('toneres').textContent = `Tone played. Mic peak during the tone: ${peak} dBFS (room noise is about -80 to -60; a tone you can hear should read -50 or higher). Session: ${navigator.audioSession ? navigator.audioSession.type : 'API missing'}.`;
+};
 $('micbtn').onclick = async () => {
   if (!needEngine()) return;
   try { await startMic(); } catch (e) { $('meterTxt').innerHTML = '<span class="bad">Microphone: ' + e.message + '</span>'; }
@@ -126,7 +140,7 @@ async function saveWav(short) {
 }
 $('wavshort').onclick = () => saveWav(true);
 $('wavfull').onclick = () => saveWav(false);
-$('src').value = store.get('src', 'ext');
+$('src').value = store.get('src', 'self');
 $('src').onchange = e => { store.set('src', e.target.value); $('extbox').hidden = e.target.value !== 'ext'; };
 $('extbox').hidden = $('src').value !== 'ext';
 

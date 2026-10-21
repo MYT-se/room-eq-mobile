@@ -52,7 +52,7 @@ details{margin-top:8px;font-size:14px;color:var(--mut)}
   <input type="file" id="calfile" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
   <div class="msg" id="calinfo">No file chosen. Without it the mic's own deviation is not removed.</div>
   <label>Who plays the sweeps?</label>
-  <select id="src"><option value="ext">Another device (PC, Apple TV, 2nd phone) - recommended</option><option value="self">This phone (AirPlay is not possible while the mic is on)</option></select>
+  <select id="src"><option value="self">This phone (AirPlay / Bluetooth / speaker)</option><option value="ext">Another device plays a saved WAV file</option></select>
   <div id="extbox">
     <div class="msg">Save these two files and play them from the other device into the DSP. The phone only records.</div>
     <div class="row"><button type="button" class="sec" id="wavshort">Level-check signal (WAV)</button><button type="button" class="sec" id="wavfull">Measurement signal (WAV)</button></div>
@@ -74,6 +74,12 @@ details{margin-top:8px;font-size:14px;color:var(--mut)}
   <label id="devlbl" hidden>Input</label><select id="dev" hidden></select>
   <div class="meter"><i id="meter"></i></div>
   <div class="msg" id="meterTxt">Microphone off.</div>
+  <details id="routebox"><summary>AirPlay route test</summary>
+    <label>iOS audio session</label>
+    <select id="asess"><option value="auto">auto (default)</option><option value="play-and-record">play-and-record</option><option value="playback">playback</option><option value="transient">transient</option></select>
+    <button type="button" class="sec" id="tonebtn" disabled>Play a 2 s tone</button>
+    <div class="msg" id="toneres">Start the microphone, pick AirPlay as the output (Control Center), play the tone. Does it come out of the AirPlay speakers? Does the meter above move?</div>
+  </details>
   <button class="sec" id="lvlbtn" disabled>Play test sweeps</button>
   <div id="lvlres"></div>
   <div class="msg">Raise the phone/system volume until every speaker is 40 dB or more above the noise, but never so loud that it is uncomfortable. The sweeps are digitally capped at −12 dBFS.</div>
