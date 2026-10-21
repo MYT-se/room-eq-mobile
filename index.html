@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Room EQ">
+<meta name="theme-color" content="#0f1216">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Room EQ</title>
+<style>
+:root{color-scheme:dark;--bg:#0f1216;--card:#181d24;--line:#2a313b;--fg:#e8ecf1;--mut:#8b96a5;--acc:#4da3ff;--ok:#3ecf8e;--warn:#f5b84b;--bad:#ff6b6b}
+@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#f4f6f9;--card:#fff;--line:#d8dee6;--fg:#14181d;--mut:#5d6877;--acc:#0a6fd6;--ok:#0f9d62;--warn:#b7791f;--bad:#d64545}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,system-ui,sans-serif;padding:max(12px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+h1{font-size:20px;margin:6px 0 2px}h2{font-size:16px;margin:0 0 8px}
+.sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+.card.off{opacity:.45;pointer-events:none}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+select,input[type=text],input[type=number]{width:100%;padding:11px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:16px}
+button{width:100%;padding:14px;border-radius:10px;border:0;background:var(--acc);color:#fff;font-size:17px;font-weight:600;margin-top:10px}
+button.sec{background:transparent;border:1px solid var(--line);color:var(--fg);font-weight:500}
+button:disabled{opacity:.4}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.meter{height:10px;border-radius:5px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin-top:6px}
+.meter>i{display:block;height:100%;width:0;background:var(--ok);transition:width .1s}
+.bar{height:6px;border-radius:3px;background:var(--bg);overflow:hidden;margin-top:10px}.bar>i{display:block;height:100%;width:0;background:var(--acc)}
+.msg{font-size:14px;margin-top:8px;color:var(--mut)}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.note{font-size:13px;padding:8px 10px;border-left:3px solid var(--warn);background:var(--bg);margin-top:8px;border-radius:4px}
+table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}th{color:var(--mut);font-weight:500;font-size:12px}
+canvas{width:100%;height:190px;display:block;margin-top:8px}
+.big{font-size:22px;font-weight:700}
+details{margin-top:8px;font-size:14px;color:var(--mut)}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;border:1px solid var(--line);font-size:12px;margin-right:4px}
+</style>
+</head>
+<body>
+<h1>Room EQ</h1>
+<div class="sub">UMIK-1 on the iPhone, sweeps from the phone. <span id="engine">Loading the analysis engine…</span></div>
+
+<div class="card" id="c1">
+  <h2>1 · Set up</h2>
+  <label>Room</label><input type="text" id="room" placeholder="Room name (for the report)">
+  <label>Speakers</label>
+  <select id="layout"><option value="2">Stereo (L + R)</option><option value="1">Mono (one speaker / one output)</option></select>
+  <label>Microphone calibration file (.txt, 90° file if the mic points at the ceiling)</label>
+  <input type="file" id="calfile" accept=".txt,text/plain">
+  <div class="msg" id="calinfo">No file chosen. Without it the mic's own deviation is not removed.</div>
+  <label>Measuring positions (the first is the main listening seat)</label>
+  <select id="npos"><option>3</option><option selected>4</option><option>5</option><option>6</option></select>
+  <details><summary>Before you start</summary>
+    <ol>
+      <li>Save the DSP configuration. PEQ flat/bypassed on the speakers; keep crossovers and limiters ON.</li>
+      <li>Plug the UMIK-1 into the iPhone (USB-C, or Lightning adapter). Turn the phone's volume low.</li>
+      <li>Send the phone's audio to the system: AirPlay, Bluetooth or the system's own input. Mono signals: set the route to a single output.</li>
+      <li>Quiet room. Mic at seated ear height, pointing up (90° file) or at the speakers (0° file).</li>
+    </ol></details>
+</div>
+
+<div class="card" id="c2">
+  <h2>2 · Check the level</h2>
+  <button id="micbtn">Start the microphone</button>
+  <label id="devlbl" hidden>Input</label><select id="dev" hidden></select>
+  <div class="meter"><i id="meter"></i></div>
+  <div class="msg" id="meterTxt">Microphone off.</div>
+  <button class="sec" id="lvlbtn" disabled>Play test sweeps</button>
+  <div id="lvlres"></div>
+  <div class="msg">Raise the phone/system volume until every speaker is 40 dB or more above the noise, but never so loud that it is uncomfortable. The sweeps are digitally capped at −12 dBFS.</div>
+</div>
+
+<div class="card off" id="c3">
+  <h2>3 · Measure the positions</h2>
+  <div class="msg" id="posinfo"></div>
+  <button id="measbtn">Measure position 1</button>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="msg" id="measmsg"></div>
+  <div id="measwarn"></div>
+  <button class="sec" id="undobtn" hidden>Undo last position</button>
+</div>
+
+<div class="card off" id="c4">
+  <h2>4 · Settings to enter in the DSP</h2>
+  <button id="anabtn">Calculate the EQ</button>
+  <div id="result"></div>
+</div>
+
+<div class="card off" id="c5">
+  <h2>5 · Verify</h2>
+  <div class="msg">Enter the settings in the DSP, then measure the same seats again.</div>
+  <button id="vermeas">Measure verification position 1</button>
+  <div class="bar"><i id="verbar"></i></div>
+  <div class="msg" id="vermsg"></div>
+  <button class="sec" id="verscore" hidden>Score the result</button>
+  <div id="verres"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
