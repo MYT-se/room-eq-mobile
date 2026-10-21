@@ -46,6 +46,11 @@ def new_session(layout: str, level_db: float):
     S["level_db"] = min(float(level_db), MAX_LEVEL_DB)
 
 
+def set_search(seconds: float):
+    S["search_s"] = float(seconds)
+    return {"ok": True}
+
+
 def play_plan(level_db: float, short: bool = False):
     """The audio to play: one array per output channel, plus where the sweeps start (for the analysis)."""
     names = _names()
@@ -74,7 +79,7 @@ def _analyze(rec, fs_in):
     p = S["plan"]
     rec = _to_fs(rec, fs_in)
     return sweep.analyze_run(rec, FS, p["sw"], p["starts"], _names(), p["amps"], p["gap"], IR_WINDOW, S["cal"], F_START, 20000.0,
-                             ref_last=p["ref"], cycles=FDW_CYCLES, search_s=SEARCH_S)
+                             ref_last=p["ref"], cycles=FDW_CYCLES, search_s=S.get("search_s", SEARCH_S))
 
 
 def _snr(r):

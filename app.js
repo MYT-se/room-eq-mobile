@@ -2,6 +2,7 @@
 const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/';
 const PYFILES = ['py/mobile.py', 'py/roomeq/__init__.py', 'py/roomeq/dsp.py', 'py/roomeq/sweep.py', 'py/roomeq/calfile.py'];
 const TAIL_S = 9;            // extra recording after the playback ends: AirPlay/Bluetooth delay the sound by seconds
+const EXT_WAIT_S = 40;      // other-device mode: time to press play on the other device, after the signal's own length
 const LEAD_S = 0.6;          // recording starts this long before the playback
 const $ = id => document.getElementById(id);
 const store = {
@@ -105,11 +106,37 @@ function meter(buf) {
   if (!busy) $('meterTxt').textContent = `Microphone ${db.toFixed(0)} dBFS` + (p > 0.98 ? ' · CLIPPING' : '');
 }
 
+// ---------- test signal as a WAV file (to play from another device) -----------------------------------------------
+function wavBlob(flat, nch) {
+  const frames = flat.length / nch, bytes = frames * nch * 2, v = new DataView(new ArrayBuffer(44 + bytes));
+  const w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, nch, true);
+  v.setUint32(24, 48000, true); v.setUint32(28, 48000 * nch * 2, true); v.setUint16(32, nch * 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, bytes, true);
+  let o = 44;
+  for (let i = 0; i < frames; i++) for (let c = 0; c < nch; c++) { const x = Math.max(-1, Math.min(1, flat[c * frames + i])); v.setInt16(o, Math.round(x * 32767), true); o += 2; }
+  return new Blob([v], { type: 'audio/wav' });
+}
+async function saveWav(short) {
+  if (!needEngine()) return;
+  const p = mobile.plan_audio(level, short); const [flat, nch] = p.toJs(); p.destroy();
+  const name = `roomeq-${short ? 'levelcheck' : 'measure'}-${nch === 1 ? 'mono' : 'stereo'}.wav`;
+  const file = new File([wavBlob(flat, nch)], name, { type: 'audio/wav' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+$('wavshort').onclick = () => saveWav(true);
+$('wavfull').onclick = () => saveWav(false);
+$('src').value = store.get('src', 'ext');
+$('src').onchange = e => { store.set('src', e.target.value); $('extbox').hidden = e.target.value !== 'ext'; };
+$('extbox').hidden = $('src').value !== 'ext';
+
 // ---------- play + record ----------------------------------------------------------------------------------------
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function playRecord(short, onProgress) {
   const [flat, nch, seconds] = (() => { const p = mobile.plan_audio(level, short); const j = p.toJs(); p.destroy(); return j; })();
   if (window.__fakeRecord) return window.__fakeRecord(short);
+  const ext = $('src').value === 'ext';
+  mobile.set_search(ext ? 45 : 9);
   const frames = flat.length / nch;
   const buf = ctx.createBuffer(nch, frames, 48000);
   for (let c = 0; c < nch; c++) buf.copyToChannel(flat.subarray(c * frames, (c + 1) * frames), c);
@@ -118,8 +145,9 @@ async function playRecord(short, onProgress) {
   chunks = [];
   await sleep(LEAD_S * 1000);
   const t0 = performance.now();
-  const srcNode = ctx.createBufferSource(); srcNode.buffer = buf; srcNode.connect(ctx.destination); srcNode.start();
-  const total = seconds + TAIL_S;
+  if (!ext) { const srcNode = ctx.createBufferSource(); srcNode.buffer = buf; srcNode.connect(ctx.destination); srcNode.start(); }
+  const total = ext ? seconds + EXT_WAIT_S : seconds + TAIL_S;
+  if (ext) $('meterTxt').textContent = `Recording - START THE ${short ? 'LEVEL-CHECK' : 'MEASUREMENT'} SIGNAL on the other device now (within ${EXT_WAIT_S - 5} s).`;
   while ((performance.now() - t0) / 1000 < total) { onProgress(Math.min(1, (performance.now() - t0) / 1000 / total)); await sleep(150); }
   const got = chunks; chunks = null;
   if (lock) lock.release();

@@ -51,6 +51,12 @@ details{margin-top:8px;font-size:14px;color:var(--mut)}
   <button type="button" class="sec" id="calbtn">Choose calibration file…</button>
   <input type="file" id="calfile" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
   <div class="msg" id="calinfo">No file chosen. Without it the mic's own deviation is not removed.</div>
+  <label>Who plays the sweeps?</label>
+  <select id="src"><option value="ext">Another device (PC, Apple TV, 2nd phone) - recommended</option><option value="self">This phone (AirPlay is not possible while the mic is on)</option></select>
+  <div id="extbox">
+    <div class="msg">Save these two files and play them from the other device into the DSP. The phone only records.</div>
+    <div class="row"><button type="button" class="sec" id="wavshort">Level-check signal (WAV)</button><button type="button" class="sec" id="wavfull">Measurement signal (WAV)</button></div>
+  </div>
   <label>Measuring positions (the first is the main listening seat)</label>
   <select id="npos"><option>3</option><option selected>4</option><option>5</option><option>6</option></select>
   <details><summary>Before you start</summary>
